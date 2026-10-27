@@ -15,8 +15,8 @@ Seven tools, every one read-only, nothing that takes a path or a command:
 | Tool | Answers |
 |---|---|
 | `config_sanity` | The checklist behind most production surprises: debug on in production, a missing `APP_KEY`, config and route caches not built, `array` or `sync` drivers in production, whether the database, cache and Redis answer, whether `storage` and `bootstrap/cache` are writable, whether the scheduler is ticking. Driver names and verdicts only, never values. |
-| `vitals` | Laravel and PHP versions, environment, the release directory, maintenance mode, opcache, host uptime, load, memory, disk, and counts of php-fpm, Horizon, `queue:work` and nginx processes with the Horizon master's age. |
-| `tail_log` | The last lines of a log channel (`single` and `daily` channels, plus `{channel}-yesterday`), any file in `storage/logs` by name, or a path you allow-list. Case-insensitive grep over the last 16 MB. Redacted before it leaves. |
+| `vitals` | Laravel and PHP versions, environment, the release directory, maintenance mode, opcache, host uptime, load, memory, disk, and counts of php-fpm, Horizon, `queue:work` and nginx processes with the Horizon master's age. Memory comes from `/proc/meminfo`, so it is null off Linux; whatever is null says why in `host.notes`. |
+| `tail_log` | The last lines of a log: the app's default channel when you name none, or a channel by name (`single` and `daily`, plus `{channel}-yesterday`), any file in `storage/logs` by name, or a path you allow-list. A plain tail reads the last 256 KB of the file; a case-insensitive grep streams the last 16 MB and keeps the last matches. Redacted before it leaves. |
 | `list_logs` | The channels and the files `tail_log` can read, with sizes and last write. |
 | `failed_jobs` | Failed jobs over a window grouped by queue, job class and the normalised exception line, most frequent first, plus the newest ten with ids for `queue:retry`. |
 | `queue_status` | Pending, delayed and reserved jobs per queue with the age of the oldest. With Horizon: every master and supervisor, processes per queue, and the declared queues no process is on. |

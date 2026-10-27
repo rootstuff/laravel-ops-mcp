@@ -58,6 +58,48 @@ final class LogFiles
     }
 
     /**
+     * The log tail_log reads when the caller names none: the app's default
+     * channel, followed through a `stack` to its first file-backed member,
+     * then `single`, then `daily`, then whatever is named first. Null when
+     * the app has no file-backed channel and nothing is allow-listed.
+     */
+    public static function defaultLog(): ?string
+    {
+        $named = self::named();
+        $channels = (array) config('logging.channels', []);
+        $queue = [(string) config('logging.default', '')];
+        $seen = [];
+
+        while ($queue !== []) {
+            $name = array_shift($queue);
+
+            if ($name === '' || isset($seen[$name])) {
+                continue;
+            }
+
+            $seen[$name] = true;
+
+            if (isset($named[$name])) {
+                return $name;
+            }
+
+            if (($channels[$name]['driver'] ?? null) === 'stack') {
+                foreach ((array) ($channels[$name]['channels'] ?? []) as $member) {
+                    $queue[] = (string) $member;
+                }
+            }
+        }
+
+        foreach (['single', 'daily'] as $fallback) {
+            if (isset($named[$fallback])) {
+                return $fallback;
+            }
+        }
+
+        return array_key_first($named);
+    }
+
+    /**
      * Every .log file in storage/logs, newest first.
      *
      * @return list<array{name: string, size_bytes: int, modified_at: string}>
@@ -101,12 +143,22 @@ final class LogFiles
 
     /**
      * The last lines of a log, optionally only those containing a string,
-     * redacted before they leave.
+     * redacted before they leave. A null log reads the default (see
+     * defaultLog). A plain tail reads the last 256 KB of the file; a grep
+     * streams the last 16 MB.
      *
      * @return array<string, mixed>
      */
-    public static function tail(string $log, int $lines = 50, ?string $grep = null): array
+    public static function tail(?string $log, int $lines = 50, ?string $grep = null): array
     {
+        if ($log === null || $log === '') {
+            $log = self::defaultLog();
+
+            if ($log === null) {
+                return ['log' => null, 'error' => 'No default log: the app has no single or daily channel and nothing is allow-listed under ops-mcp.logs.extra. Name a file from list_logs instead.'];
+            }
+        }
+
         $path = self::resolve($log);
 
         if ($path === null) {

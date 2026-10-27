@@ -3,6 +3,7 @@
 use Rootstuff\OpsMcp\Mcp\OpsServer;
 use Rootstuff\OpsMcp\Mcp\Tools\ListLogsTool;
 use Rootstuff\OpsMcp\Mcp\Tools\TailLogTool;
+use Rootstuff\OpsMcp\Support\LogFiles;
 
 it('tails a channel by name and redacts secrets', function () {
     $this->writeLog('laravel.log', "[2026-10-14] local.INFO: one\n[2026-10-14] local.ERROR: boom token=abcdefgh\n[2026-10-14] local.INFO: three\n");
@@ -66,4 +67,30 @@ it('lists the named channels and the files in storage/logs', function () {
     $this->writeLog('logs/laravel.log', "x\n");
 
     OpsServer::tool(ListLogsTool::class)->assertOk()->assertSee('"single"')->assertSee('"daily-yesterday"')->assertSee('laravel.log');
+});
+
+it('reads the default channel when no log is named', function () {
+    $this->writeLog('laravel.log', "default channel line\n");
+
+    OpsServer::tool(TailLogTool::class)->assertOk()->assertSee('default channel line')->assertSee('"log":"single"');
+    OpsServer::tool(TailLogTool::class, ['lines' => 5, 'grep' => 'DEFAULT'])->assertOk()->assertSee('default channel line')->assertSee('"matched":1');
+});
+
+it('follows a stack to its first file-backed channel for the default', function () {
+    config()->set('logging.default', 'stack');
+    config()->set('logging.channels.stack', ['driver' => 'stack', 'channels' => ['stderr', 'daily']]);
+    config()->set('logging.channels.stderr', ['driver' => 'monolog', 'handler' => 'stderr']);
+    $this->writeLog('daily-'.now()->toDateString().'.log', "from the daily file\n");
+
+    expect(LogFiles::defaultLog())->toBe('daily');
+    OpsServer::tool(TailLogTool::class)->assertOk()->assertSee('from the daily file')->assertSee('"log":"daily"');
+});
+
+it('says so when the app has no file-backed channel to default to', function () {
+    config()->set('logging.default', 'stderr');
+    config()->set('logging.channels', ['stderr' => ['driver' => 'monolog', 'handler' => 'stderr']]);
+    config()->set('ops-mcp.logs.extra', []);
+
+    expect(LogFiles::defaultLog())->toBeNull();
+    OpsServer::tool(TailLogTool::class)->assertOk()->assertSee('No default log');
 });

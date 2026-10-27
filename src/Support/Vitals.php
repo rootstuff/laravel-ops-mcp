@@ -7,7 +7,8 @@ use Symfony\Component\Process\Process;
 /**
  * The box and the app as they are right now: versions, environment, the
  * release on disk, load, memory, disk and the processes that matter.
- * Linux-first (procfs); anything unreadable comes back null, never an error.
+ * Linux-first (procfs), with sysctl and pgrep fallbacks for macOS and BSD;
+ * anything still unreadable comes back null and says so in host.notes.
  */
 final class Vitals
 {
@@ -17,6 +18,28 @@ final class Vitals
     public static function collect(): array
     {
         $loads = sys_getloadavg();
+        $uptime = self::uptime();
+        $memory = self::memory();
+        $processes = [
+            'php-fpm' => self::count(['pgrep', 'php-fpm']),
+            'horizon' => self::count(['pgrep', '-f', 'artisan horizon']),
+            'queue-work' => self::count(['pgrep', '-f', 'queue:work']),
+            'nginx' => self::count(['pgrep', 'nginx']),
+            'horizon_master' => self::horizonMaster(),
+        ];
+        $notes = [];
+
+        if ($memory === null) {
+            $notes[] = 'memory is read from /proc/meminfo, which '.PHP_OS_FAMILY.' does not have.';
+        }
+
+        if ($uptime === null) {
+            $notes[] = 'uptime needs /proc/uptime or `sysctl kern.boottime`; neither answered.';
+        }
+
+        if (array_filter(array_slice($processes, 0, 4), fn (?int $count) => $count !== null) === []) {
+            $notes[] = 'process counts need `pgrep` on PATH; it did not answer.';
+        }
 
         return [
             'app' => [
@@ -36,22 +59,17 @@ final class Vitals
             'host' => [
                 'hostname' => gethostname(),
                 'os' => PHP_OS_FAMILY,
-                'uptime' => self::uptime(),
+                'uptime' => $uptime,
                 'load' => $loads !== false ? ['1m' => round($loads[0], 2), '5m' => round($loads[1], 2), '15m' => round($loads[2], 2)] : null,
                 'cpus' => self::cpus(),
-                'memory' => self::memory(),
+                'memory' => $memory,
                 'disk' => [
                     'app' => self::disk(base_path()),
                     'storage' => self::disk(storage_path()),
                 ],
+                'notes' => $notes,
             ],
-            'processes' => [
-                'php-fpm' => self::count(['pgrep', '-c', 'php-fpm']),
-                'horizon' => self::count(['pgrep', '-f', '-c', 'artisan horizon']),
-                'queue-work' => self::count(['pgrep', '-f', '-c', 'queue:work']),
-                'nginx' => self::count(['pgrep', '-c', 'nginx']),
-                'horizon_master' => self::horizonMaster(),
-            ],
+            'processes' => $processes,
             'generated_at' => now()->toIso8601String(),
         ];
     }
@@ -64,9 +82,14 @@ final class Vitals
             return self::duration($seconds);
         }
 
-        $out = trim(self::run(['uptime', '-p'], 5));
+        // BSD and macOS: `{ sec = 1760000000, usec = 0 } Mon Oct 13 ...`
+        [$exit, $out] = self::run(['sysctl', '-n', 'kern.boottime'], 5);
 
-        return $out !== '' ? $out : null;
+        if ($exit === 0 && preg_match('/sec\s*=\s*(\d+)/', $out, $m) === 1) {
+            return self::duration(max(0, time() - (int) $m[1]));
+        }
+
+        return null;
     }
 
     private static function cpus(): ?int
@@ -77,7 +100,9 @@ final class Vitals
             return $count > 0 ? $count : null;
         }
 
-        return self::count(['sysctl', '-n', 'hw.ncpu']);
+        [$exit, $out] = self::run(['sysctl', '-n', 'hw.ncpu'], 5);
+
+        return $exit === 0 && is_numeric(trim($out)) ? (int) trim($out) : null;
     }
 
     /**
@@ -131,13 +156,19 @@ final class Vitals
      */
     private static function horizonMaster(): ?array
     {
-        $pid = (int) trim(self::run(['pgrep', '-o', '-f', 'artisan horizon$'], 5));
+        [$exit, $out] = self::run(['pgrep', '-o', '-f', 'artisan horizon$'], 5);
+        $pid = $exit === 0 ? (int) trim($out) : 0;
 
         if ($pid <= 0) {
             return null;
         }
 
-        $elapsed = (int) trim(self::run(['ps', '-o', 'etimes=', '-p', (string) $pid], 5));
+        [$exit, $out] = self::run(['ps', '-o', 'etime=', '-p', (string) $pid], 5);
+        $elapsed = $exit === 0 ? self::parseElapsed(trim($out)) : null;
+
+        if ($elapsed === null) {
+            return null;
+        }
 
         return [
             'pid' => $pid,
@@ -147,28 +178,49 @@ final class Vitals
     }
 
     /**
+     * How many processes a pgrep matches. pgrep prints one pid a line and
+     * exits 1 for no match (`-c` is Linux-only, so the lines are counted
+     * here). Anything else, pgrep missing included, is null.
+     *
      * @param  list<string>  $argv
      */
     private static function count(array $argv): ?int
     {
-        $out = trim(self::run($argv, 5));
+        [$exit, $out] = self::run($argv, 5);
 
-        return $out === '' || ! is_numeric($out) ? null : (int) $out;
+        return match ($exit) {
+            0 => count(preg_split('/\R/', trim($out), -1, PREG_SPLIT_NO_EMPTY) ?: []),
+            1 => 0,
+            default => null,
+        };
+    }
+
+    /**
+     * Seconds in a `ps -o etime` value: `[[dd-]hh:]mm:ss`.
+     */
+    public static function parseElapsed(string $etime): ?int
+    {
+        if (preg_match('/^(?:(\d+)-)?(?:(\d+):)?(\d{1,2}):(\d{2})$/', $etime, $m) !== 1) {
+            return null;
+        }
+
+        return ((int) $m[1]) * 86400 + ((int) $m[2]) * 3600 + ((int) $m[3]) * 60 + (int) $m[4];
     }
 
     /**
      * @param  list<string>  $argv
+     * @return array{0: int, 1: string} exit code (-1 when it could not run) and stdout
      */
-    private static function run(array $argv, int $timeout): string
+    private static function run(array $argv, int $timeout): array
     {
         try {
             $process = new Process($argv);
             $process->setTimeout($timeout);
             $process->run();
 
-            return $process->getOutput();
+            return [$process->getExitCode() ?? -1, $process->getOutput()];
         } catch (\Throwable) {
-            return '';
+            return [-1, ''];
         }
     }
 
