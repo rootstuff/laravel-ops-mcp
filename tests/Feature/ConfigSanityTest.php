@@ -2,6 +2,7 @@
 
 use Rootstuff\OpsMcp\Mcp\OpsServer;
 use Rootstuff\OpsMcp\Mcp\Tools\ConfigSanityTool;
+use Rootstuff\OpsMcp\Support\ConfigSanity;
 
 it('passes a sane testing setup with the scheduler flagged as not ticking', function () {
     $response = OpsServer::tool(ConfigSanityTool::class)->assertOk();
@@ -22,4 +23,20 @@ it('fails a missing app key', function () {
     config()->set('app.key', '');
 
     OpsServer::tool(ConfigSanityTool::class)->assertOk()->assertSee('No APP_KEY');
+});
+
+it('warns when long-running processes still run from a release older than current', function () {
+    ['proc' => $proc, 'root' => $root] = fakeProc($this->logDir);
+
+    $check = collect(ConfigSanity::collect($proc, $root)['checks'])->firstWhere('check', 'processes');
+
+    expect($check['status'])->toBe('warn')
+        ->and($check['value'])->toBe('2 of 5 from old releases')
+        ->and($check['note'])->toContain('still run from release(s) old while current is new')->toContain('ssr');
+});
+
+it('reports processes as not scoped without /proc', function () {
+    $check = collect(ConfigSanity::collect($this->logDir.'/no-proc', $this->logDir)['checks'])->firstWhere('check', 'processes');
+
+    expect($check['status'])->toBe('ok')->and($check['value'])->toBe('not scoped');
 });

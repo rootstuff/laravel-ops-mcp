@@ -14,7 +14,7 @@ use Rootstuff\OpsMcp\Support\ConfigSanity;
 #[IsReadOnly]
 #[Name('config_sanity')]
 #[Title('Config sanity')]
-#[Description('A checklist of the configuration mistakes behind most production surprises, each with ok, warn or fail: debug on in production, missing APP_KEY, config and route caches not built, local-only drivers (array, sync) in production, database, cache and Redis reachability, writable storage and bootstrap/cache directories, and whether the scheduler is ticking. Driver names and verdicts only, never values.')]
+#[Description('A checklist of the configuration mistakes behind most production surprises, each with ok, warn or fail: debug on in production, missing APP_KEY, config and route caches not built, local-only drivers (array, sync) in production, database, cache and Redis reachability, writable storage and bootstrap/cache directories, whether the scheduler is ticking, and whether long-running processes (SSR, Horizon, queue workers) still run from a release older than current. Driver names and verdicts only, never values.')]
 class ConfigSanityTool extends Tool
 {
     public function handle(Request $request): Response

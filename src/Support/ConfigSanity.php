@@ -12,14 +12,15 @@ use Throwable;
  * checklist with a verdict per line: debug on in production, a missing key,
  * caches not built, drivers that only make sense locally, services the app
  * cannot reach, directories it cannot write, a scheduler that is not
- * ticking. Reports driver names and verdicts, never values.
+ * ticking, long-running processes left on an old release. Reports driver
+ * names and verdicts, never values.
  */
 final class ConfigSanity
 {
     /**
      * @return array<string, mixed>
      */
-    public static function collect(): array
+    public static function collect(?string $procRoot = null, ?string $appRoot = null): array
     {
         $env = (string) config('app.env');
         $production = $env === 'production';
@@ -85,6 +86,8 @@ final class ConfigSanity
             ($scheduler['recording'] ?? false) && ! ($scheduler['scheduler']['running'] ?? false) ? 'No `schedule:run` in the last '.SchedulerState::STALE_AFTER_SECONDS.' seconds. Check the cron entry.' : null,
         );
 
+        $checks[] = self::processesCheck(Processes::collect($procRoot, $appRoot));
+
         $summary = ['ok' => 0, 'warn' => 0, 'fail' => 0];
 
         foreach ($checks as $check) {
@@ -96,6 +99,48 @@ final class ConfigSanity
             'checks' => $checks,
             'generated_at' => now()->toIso8601String(),
         ];
+    }
+
+    /**
+     * Long-running processes (SSR, Horizon, queue workers) still running
+     * from a release older than `current` serve old code until restarted:
+     * the deploy looked fine and the site did not change.
+     *
+     * @param  array<string, mixed>  $listing
+     * @return array{check: string, status: string, value: string, note: string|null}
+     */
+    private static function processesCheck(array $listing): array
+    {
+        if (! ($listing['scoped'] ?? false)) {
+            return self::check('processes', 'ok', 'not scoped', 'Process checks need /proc (Linux).');
+        }
+
+        $count = (int) ($listing['count'] ?? 0);
+        $stale = (int) ($listing['stale_count'] ?? 0);
+
+        if ($count === 0) {
+            return self::check('processes', 'ok', 'none');
+        }
+
+        if ($stale === 0) {
+            return self::check('processes', 'ok', "{$count} on current release");
+        }
+
+        $old = array_keys(array_filter((array) ($listing['by_release'] ?? []), fn ($n, $release) => $release !== ($listing['current_release'] ?? null) && $release !== '(no release dir)', ARRAY_FILTER_USE_BOTH));
+        $kinds = array_keys(array_filter((array) ($listing['by_kind'] ?? [])));
+
+        return self::check(
+            'processes',
+            'warn',
+            "{$stale} of {$count} from old releases",
+            sprintf(
+                '%d process(es) (%s) still run from release(s) %s while current is %s: they serve old code until restarted. See the processes tool.',
+                $stale,
+                implode(', ', $kinds),
+                implode(', ', array_map(fn ($r) => substr((string) $r, 0, 12), $old)),
+                substr((string) ($listing['current_release'] ?? ''), 0, 12),
+            ),
+        );
     }
 
     /**
