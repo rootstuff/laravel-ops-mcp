@@ -10,7 +10,7 @@ answer comes from the app itself.
 
 ## What it exposes
 
-Seven tools, every one read-only, nothing that takes a path or a command:
+Eight tools, every one read-only, nothing that takes a path or a command:
 
 | Tool | Answers |
 |---|---|
@@ -18,6 +18,7 @@ Seven tools, every one read-only, nothing that takes a path or a command:
 | `vitals` | Laravel and PHP versions, environment, the release directory, maintenance mode, opcache, host uptime, load, memory, disk; host-wide php-fpm and nginx counts; and this app's own Horizon, `queue:work` and Inertia SSR processes with the Horizon master's age, told apart from other apps on the same box by their working directory under `/proc` (a `releases/<sha>` layout counts every release). Memory comes from `/proc/meminfo`, so it is null off Linux; whatever is null says why in `host.notes`. |
 | `tail_log` | The last lines of a log: the app's default channel when you name none, or a channel by name (`single` and `daily`, plus `{channel}-yesterday`), any file in `storage/logs` by name, or a path you allow-list. A plain tail reads the last 256 KB of the file; a case-insensitive `grep` or a `since` (`30m`, `2h`, `1d`, or an ISO time) streams the last 16 MB and keeps the last matches. Warns when another named log was written more recently than the one you read, the stale `laravel.log` beside a live daily file. Redacted before it leaves. |
 | `list_logs` | The channels and the files `tail_log` can read, with sizes and last write. |
+| `processes` | This app's long-running processes, told apart from other apps on the box by working directory: pid, parent, age, the release each runs from and whether it is still current, listening TCP ports, and the command. Horizon master, supervisors and workers, `queue:work`, the Inertia SSR wrapper and its node child, `schedule:work`, Octane, Reverb. Answers "did it restart on deploy?" and "which old process still holds the port?". Linux (`/proc`); elsewhere a best-effort match on command lines. |
 | `failed_jobs` | Failed jobs over a window grouped by queue, job class and the normalised exception line, most frequent first, plus the newest ten with ids for `queue:retry`. |
 | `queue_status` | Pending, delayed and reserved jobs per queue with the age of the oldest. With Horizon: every master and supervisor, processes per queue, and the declared queues no process is on. |
 | `scheduler` | Every scheduled task with its expression, next due time and last run, and whether `schedule:run` has ticked recently. |

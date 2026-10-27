@@ -154,58 +154,35 @@ final class Vitals
     }
 
     /**
-     * This app's own long-running processes: the Horizon master, supervisors
-     * and workers, queue:work, and the Inertia SSR server. Other apps on the
-     * same box run the same commands, and Horizon's children carry a bare
-     * `artisan` in their command line, so they are told apart by working
-     * directory under /proc. Without /proc the counts fall back to host-wide
-     * and `scoped` says so.
+     * This app's own long-running processes, counted from the same listing
+     * the processes tool returns (scoped by working directory under /proc;
+     * best-effort by command line elsewhere, with `scoped` false).
      *
-     * @return array{root: string, scoped: bool, horizon: int|null, queue_work: int|null, inertia_ssr: int|null, horizon_master: array{pid: int, uptime_seconds: int, started_at: string}|null}
+     * @return array{root: string, scoped: bool, horizon: int, queue_work: int, inertia_ssr: int, horizon_master: array{pid: int, uptime_seconds: int, started_at: string}|null}
      */
     public static function appProcesses(): array
     {
-        $root = self::appRoot((string) (realpath(base_path()) ?: base_path()));
-        $scoped = is_dir('/proc/self');
-        [$exit, $out] = self::run(['pgrep', '-f', 'artisan (horizon|queue:work|inertia:start-ssr)|ssr/ssr\.m?js'], 5);
-
-        if ($exit !== 0 && $exit !== 1) {
-            return ['root' => $root, 'scoped' => $scoped, 'horizon' => null, 'queue_work' => null, 'inertia_ssr' => null, 'horizon_master' => null];
-        }
-
+        $listing = Processes::collect();
         $counts = ['horizon' => 0, 'queue_work' => 0, 'inertia_ssr' => 0];
-        $masters = [];
+        $master = null;
 
-        foreach (preg_split('/\R/', trim($out), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $pid) {
-            $pid = (int) $pid;
+        foreach ($listing['processes'] as $process) {
+            $kind = (string) $process['kind'];
 
-            if ($scoped) {
-                $cwd = @readlink("/proc/{$pid}/cwd");
-
-                if ($cwd === false || ! str_starts_with(rtrim($cwd, '/').'/', $root.'/')) {
-                    continue;
-                }
-
-                $command = str_replace("\0", ' ', (string) @file_get_contents("/proc/{$pid}/cmdline"));
-            } else {
-                [, $command] = self::run(['ps', '-o', 'command=', '-p', (string) $pid], 5);
-            }
-
-            $command = trim($command);
-
-            if (preg_match('/artisan horizon$/', $command) === 1) {
+            if (str_starts_with($kind, 'horizon')) {
                 $counts['horizon']++;
-                $masters[] = $pid;
-            } elseif (preg_match('/artisan horizon(:\S+)?(\s|$)/', $command) === 1) {
-                $counts['horizon']++;
-            } elseif (str_contains($command, 'queue:work')) {
+            } elseif ($kind === 'queue-worker') {
                 $counts['queue_work']++;
-            } elseif (str_contains($command, 'inertia:start-ssr') || preg_match('~ssr/ssr\.m?js~', $command) === 1) {
+            } elseif ($kind === 'ssr' || $kind === 'ssr-node') {
                 $counts['inertia_ssr']++;
             }
+
+            if ($kind === 'horizon-master' && ($master === null || $process['age_seconds'] > $master['uptime_seconds'])) {
+                $master = ['pid' => (int) $process['pid'], 'uptime_seconds' => (int) $process['age_seconds'], 'started_at' => (string) $process['started_at']];
+            }
         }
 
-        return ['root' => $root, 'scoped' => $scoped] + $counts + ['horizon_master' => self::oldest($masters)];
+        return ['root' => $listing['root'], 'scoped' => $listing['scoped']] + $counts + ['horizon_master' => $master];
     }
 
     /**
@@ -227,29 +204,6 @@ final class Vitals
         }
 
         return $basePath;
-    }
-
-    /**
-     * The longest-running of the given pids: how long the Horizon master has
-     * run says whether Horizon restarted without a deploy.
-     *
-     * @param  list<int>  $pids
-     * @return array{pid: int, uptime_seconds: int, started_at: string}|null
-     */
-    private static function oldest(array $pids): ?array
-    {
-        $best = null;
-
-        foreach ($pids as $pid) {
-            [$exit, $out] = self::run(['ps', '-o', 'etime=', '-p', (string) $pid], 5);
-            $elapsed = $exit === 0 ? self::parseElapsed(trim($out)) : null;
-
-            if ($elapsed !== null && ($best === null || $elapsed > $best['uptime_seconds'])) {
-                $best = ['pid' => $pid, 'uptime_seconds' => $elapsed, 'started_at' => now()->subSeconds($elapsed)->toIso8601String()];
-            }
-        }
-
-        return $best;
     }
 
     /**
