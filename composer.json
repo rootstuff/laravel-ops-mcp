@@ -13,16 +13,16 @@
     "require": {
         "php": "^8.2",
         "laravel/mcp": "^1.0",
-        "illuminate/console": "^11.45.3|^12.41.1|^13.0",
-        "illuminate/contracts": "^11.45.3|^12.41.1|^13.0",
-        "illuminate/database": "^11.45.3|^12.41.1|^13.0",
-        "illuminate/http": "^11.45.3|^12.41.1|^13.0",
-        "illuminate/queue": "^11.45.3|^12.41.1|^13.0",
-        "illuminate/support": "^11.45.3|^12.41.1|^13.0",
+        "illuminate/console": "^12.41.1|^13.0",
+        "illuminate/contracts": "^12.41.1|^13.0",
+        "illuminate/database": "^12.41.1|^13.0",
+        "illuminate/http": "^12.41.1|^13.0",
+        "illuminate/queue": "^12.41.1|^13.0",
+        "illuminate/support": "^12.41.1|^13.0",
         "symfony/process": "^7.0|^8.0"
     },
     "require-dev": {
-        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^3.0|^4.0",
         "laravel/pint": "^1.0"
     },

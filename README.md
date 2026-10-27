@@ -93,7 +93,9 @@ scheduler runs.
 
 ## Requirements
 
-PHP 8.2 or newer, Laravel 11, 12 or 13, and [laravel/mcp](https://github.com/laravel/mcp) 1.x.
+PHP 8.2 or newer, Laravel 12.41 or 13, and [laravel/mcp](https://github.com/laravel/mcp) 1.x.
+Laravel 11 is out because laravel/mcp 1.x needs `illuminate/json-schema`, which
+first shipped in Laravel 12.41.
 
 ## Who made this
 
