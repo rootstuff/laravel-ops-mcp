@@ -54,6 +54,15 @@ OPS_MCP_ENABLED=true
 OPS_MCP_TOKEN=<the generated token>
 ```
 
+If the app caches its routes (Forge deploys do), rebuild the cache after
+turning the endpoint on, and reload PHP-FPM if OPcache has timestamp
+validation off, as it does on Forge. Until both happen the route stays a
+404 even though `route:list` shows it:
+
+```bash
+php artisan route:cache && sudo service php8.3-fpm reload
+```
+
 Then connect:
 
 ```bash
