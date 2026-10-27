@@ -1,5 +1,8 @@
 <?php
 
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Date;
 use Rootstuff\OpsMcp\Mcp\OpsServer;
 use Rootstuff\OpsMcp\Mcp\Tools\ListLogsTool;
 use Rootstuff\OpsMcp\Mcp\Tools\TailLogTool;
@@ -122,4 +125,17 @@ it('warns when another named log was written more recently than the one read', f
         ->assertSee('single was last written 2h 0m ago; daily was written 0m ago. The app may be logging there now.');
 
     OpsServer::tool(TailLogTool::class, ['log' => 'daily'])->assertOk()->assertSee('"note":null');
+});
+
+it('filters by since in an app that uses immutable dates', function () {
+    Date::use(CarbonImmutable::class);
+
+    try {
+        $this->writeLog('laravel.log', '['.now()->subMinutes(5)->format('Y-m-d H:i:s')."] local.INFO: fresh\n");
+
+        expect(LogFiles::parseSince('1h'))->toBeInstanceOf(CarbonImmutable::class);
+        OpsServer::tool(TailLogTool::class, ['log' => 'single', 'since' => '1h'])->assertOk()->assertSee('fresh')->assertSee('"lines":1');
+    } finally {
+        Date::use(Carbon::class);
+    }
 });

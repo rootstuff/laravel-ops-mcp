@@ -2,6 +2,7 @@
 
 namespace Rootstuff\OpsMcp\Support;
 
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Throwable;
 
@@ -311,8 +312,10 @@ final class LogFiles
     /**
      * A `since` argument as a point in time: a window like 30m, 2h or 1d
      * back from now, or anything Carbon parses, in the app's timezone.
+     * Typed on the interface: apps that `Date::use(CarbonImmutable::class)`
+     * get immutables back from now().
      */
-    public static function parseSince(string $since): ?Carbon
+    public static function parseSince(string $since): ?CarbonInterface
     {
         $since = trim($since);
 
@@ -337,7 +340,7 @@ final class LogFiles
      * The timestamp a log entry opens with (`[2026-10-27 02:17:28] ...`,
      * with optional fraction and offset), or null for a continuation line.
      */
-    public static function timestamp(string $line): ?Carbon
+    public static function timestamp(string $line): ?CarbonInterface
     {
         if (preg_match('/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?)(Z|[+-]\d{2}:?\d{2})?\]/', $line, $m) !== 1) {
             return null;
