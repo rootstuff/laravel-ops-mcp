@@ -20,18 +20,23 @@ it('counts processes with a plain pgrep and explains what the host cannot answer
     $vitals = Vitals::collect();
 
     // pgrep prints one pid a line on every platform; the Linux-only -c is not used.
-    expect($vitals['processes']['php-fpm'])->toBeInt();
-    expect($vitals['processes']['nginx'])->toBeInt();
+    expect($vitals['processes']['host']['php-fpm'])->toBeInt();
+    expect($vitals['processes']['host']['nginx'])->toBeInt();
+    expect($vitals['processes']['app'])->toHaveKeys(['root', 'scoped', 'horizon', 'queue_work', 'inertia_ssr', 'horizon_master']);
+    expect($vitals['processes']['app']['horizon'])->toBeInt();
     expect($vitals['host']['cpus'])->toBeGreaterThan(0);
     expect($vitals['host']['uptime'])->toBeString();
 
     if (PHP_OS_FAMILY === 'Linux') {
         expect($vitals['host']['memory'])->toHaveKeys(['total_mb', 'available_mb', 'swap_used_mb']);
+        expect($vitals['processes']['app']['scoped'])->toBeTrue();
         expect($vitals['host']['notes'])->toBe([]);
     } else {
         expect($vitals['host']['memory'])->toBeNull();
-        expect($vitals['host']['notes'])->toHaveCount(1);
+        expect($vitals['processes']['app']['scoped'])->toBeFalse();
+        expect($vitals['host']['notes'])->toHaveCount(2);
         expect($vitals['host']['notes'][0])->toContain('/proc/meminfo')->toContain(PHP_OS_FAMILY);
+        expect($vitals['host']['notes'][1])->toContain('host-wide');
     }
 });
 

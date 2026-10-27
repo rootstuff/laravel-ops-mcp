@@ -94,3 +94,32 @@ it('says so when the app has no file-backed channel to default to', function () 
     expect(LogFiles::defaultLog())->toBeNull();
     OpsServer::tool(TailLogTool::class)->assertOk()->assertSee('No default log');
 });
+
+it('keeps only entries since a window or a time, with their continuation lines', function () {
+    $old = now()->subHours(3)->format('Y-m-d H:i:s');
+    $mid = now()->subMinutes(30)->format('Y-m-d H:i:s');
+    $new = now()->subMinutes(5)->format('Y-m-d H:i:s');
+    $this->writeLog('laravel.log', "[{$old}] local.ERROR: ancient\n#0 trace of ancient\n[{$mid}] local.ERROR: middle\n#0 trace of middle\n[{$new}] local.INFO: fresh\n");
+
+    $response = OpsServer::tool(TailLogTool::class, ['log' => 'single', 'since' => '1h'])->assertOk();
+    $response->assertSee('middle')->assertSee('trace of middle')->assertSee('fresh')->assertDontSee('ancient')->assertSee('"lines":3');
+
+    OpsServer::tool(TailLogTool::class, ['log' => 'single', 'since' => '1h', 'grep' => 'error'])->assertOk()
+        ->assertSee('middle')->assertDontSee('fresh')->assertDontSee('ancient')->assertSee('"matched":1');
+
+    OpsServer::tool(TailLogTool::class, ['log' => 'single', 'since' => now()->subMinutes(10)->toIso8601String()])->assertOk()
+        ->assertSee('fresh')->assertDontSee('middle')->assertSee('"lines":1');
+
+    OpsServer::tool(TailLogTool::class, ['log' => 'single', 'since' => 'whenever'])->assertOk()->assertSee('Unreadable since');
+});
+
+it('warns when another named log was written more recently than the one read', function () {
+    $single = $this->writeLog('laravel.log', "old line\n");
+    touch($single, time() - 7200);
+    $this->writeLog('daily-'.now()->toDateString().'.log', "live line\n");
+
+    OpsServer::tool(TailLogTool::class, ['log' => 'single'])->assertOk()
+        ->assertSee('single was last written 2h 0m ago; daily was written 0m ago. The app may be logging there now.');
+
+    OpsServer::tool(TailLogTool::class, ['log' => 'daily'])->assertOk()->assertSee('"note":null');
+});

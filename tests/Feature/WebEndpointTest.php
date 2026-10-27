@@ -52,3 +52,16 @@ it('logs every tool call with its arguments and never its output', function () {
 it('registers the web route only when enabled', function () {
     expect(collect(app('router')->getRoutes()->getRoutes())->contains(fn ($route) => $route->uri() === 'mcp/ops'))->toBeTrue();
 });
+
+it('rate limits each address and refuses in the JSON-RPC shape', function () {
+    config()->set('ops-mcp.rate_limit', 2);
+
+    $this->rpc('tools/list')->assertOk()->assertHeader('X-RateLimit-Remaining', '1');
+    $this->rpc('tools/list')->assertOk()->assertHeader('X-RateLimit-Remaining', '0');
+
+    $this->rpc('tools/list')->assertStatus(429)
+        ->assertHeader('Retry-After')
+        ->assertJsonPath('jsonrpc', '2.0')
+        ->assertJsonPath('error.code', -32000)
+        ->assertJsonPath('error.message', fn (string $m) => str_contains($m, 'Rate limit of 2 calls a minute'));
+});

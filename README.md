@@ -15,8 +15,8 @@ Seven tools, every one read-only, nothing that takes a path or a command:
 | Tool | Answers |
 |---|---|
 | `config_sanity` | The checklist behind most production surprises: debug on in production, a missing `APP_KEY`, config and route caches not built, `array` or `sync` drivers in production, whether the database, cache and Redis answer, whether `storage` and `bootstrap/cache` are writable, whether the scheduler is ticking. Driver names and verdicts only, never values. |
-| `vitals` | Laravel and PHP versions, environment, the release directory, maintenance mode, opcache, host uptime, load, memory, disk, and counts of php-fpm, Horizon, `queue:work` and nginx processes with the Horizon master's age. Memory comes from `/proc/meminfo`, so it is null off Linux; whatever is null says why in `host.notes`. |
-| `tail_log` | The last lines of a log: the app's default channel when you name none, or a channel by name (`single` and `daily`, plus `{channel}-yesterday`), any file in `storage/logs` by name, or a path you allow-list. A plain tail reads the last 256 KB of the file; a case-insensitive grep streams the last 16 MB and keeps the last matches. Redacted before it leaves. |
+| `vitals` | Laravel and PHP versions, environment, the release directory, maintenance mode, opcache, host uptime, load, memory, disk; host-wide php-fpm and nginx counts; and this app's own Horizon, `queue:work` and Inertia SSR processes with the Horizon master's age, told apart from other apps on the same box by their working directory under `/proc` (a `releases/<sha>` layout counts every release). Memory comes from `/proc/meminfo`, so it is null off Linux; whatever is null says why in `host.notes`. |
+| `tail_log` | The last lines of a log: the app's default channel when you name none, or a channel by name (`single` and `daily`, plus `{channel}-yesterday`), any file in `storage/logs` by name, or a path you allow-list. A plain tail reads the last 256 KB of the file; a case-insensitive `grep` or a `since` (`30m`, `2h`, `1d`, or an ISO time) streams the last 16 MB and keeps the last matches. Warns when another named log was written more recently than the one you read, the stale `laravel.log` beside a live daily file. Redacted before it leaves. |
 | `list_logs` | The channels and the files `tail_log` can read, with sizes and last write. |
 | `failed_jobs` | Failed jobs over a window grouped by queue, job class and the normalised exception line, most frequent first, plus the newest ten with ids for `queue:retry`. |
 | `queue_status` | Pending, delayed and reserved jobs per queue with the age of the oldest. With Horizon: every master and supervisor, processes per queue, and the declared queues no process is on. |
@@ -77,8 +77,9 @@ The web endpoint is off by default and refuses every request until a token
 of at least 32 characters is configured. The token is compared in constant
 time. An optional IP allow-list (`OPS_MCP_ALLOWED_IPS`, comma-separated
 addresses or CIDR ranges) and a per-IP rate limit (`OPS_MCP_RATE_LIMIT`,
-60 a minute by default) sit in front of it. Every tool call is logged with
-its arguments, never its output.
+60 a minute by default) sit in front of it; every refusal, the rate limit
+included, is a JSON-RPC error. Every tool call is logged with its
+arguments, never its output (so don't grep for a secret).
 
 Log names resolve to a channel, a bare file name inside `storage/logs`, or
 a name you allow-listed in the config. A path, `..`, or anything else comes

@@ -3,6 +3,7 @@
 namespace Rootstuff\OpsMcp\Support;
 
 use Illuminate\Support\Carbon;
+use Throwable;
 
 /**
  * The log files an agent may read: the files behind the app's `single` and
@@ -149,8 +150,18 @@ final class LogFiles
      *
      * @return array<string, mixed>
      */
-    public static function tail(?string $log, int $lines = 50, ?string $grep = null): array
+    public static function tail(?string $log, int $lines = 50, ?string $grep = null, ?string $since = null): array
     {
+        $sinceAt = null;
+
+        if ($since !== null && $since !== '') {
+            $sinceAt = self::parseSince($since);
+
+            if ($sinceAt === null) {
+                return ['log' => $log, 'since' => $since, 'error' => 'Unreadable since. Use a window like 30m, 2h or 1d, or an ISO-8601 time.'];
+            }
+        }
+
         if ($log === null || $log === '') {
             $log = self::defaultLog();
 
@@ -184,7 +195,8 @@ final class LogFiles
         }
 
         $grepping = $grep !== null && $grep !== '';
-        $start = max(0, $size - ($grepping ? self::GREP_WINDOW : self::TAIL_WINDOW));
+        $streaming = $grepping || $sinceAt !== null;
+        $start = max(0, $size - ($streaming ? self::GREP_WINDOW : self::TAIL_WINDOW));
         fseek($handle, $start);
 
         if ($start > 0) {
@@ -193,20 +205,40 @@ final class LogFiles
 
         $matched = null;
 
-        if ($grepping) {
+        if ($streaming) {
             // Keep only the last N matches while streaming, so a window full
-            // of matches never builds a 16 MB array.
+            // of matches never builds a 16 MB array. A `since` cut-off keys
+            // off each entry's leading timestamp; continuation lines (stack
+            // traces) follow the entry they belong to.
             $selected = [];
-            $matched = 0;
+            $matched = $grepping ? 0 : null;
+            $keeping = $sinceAt === null;
 
             while (($line = fgets($handle)) !== false) {
-                if (stripos($line, $grep) !== false) {
-                    $matched++;
-                    $selected[] = rtrim($line, "\r\n");
+                if ($sinceAt !== null) {
+                    $stamp = self::timestamp($line);
 
-                    if (count($selected) > $lines) {
-                        array_shift($selected);
+                    if ($stamp !== null) {
+                        $keeping = $stamp->greaterThanOrEqualTo($sinceAt);
                     }
+
+                    if (! $keeping) {
+                        continue;
+                    }
+                }
+
+                if ($grepping) {
+                    if (stripos($line, $grep) === false) {
+                        continue;
+                    }
+
+                    $matched++;
+                }
+
+                $selected[] = rtrim($line, "\r\n");
+
+                if (count($selected) > $lines) {
+                    array_shift($selected);
                 }
             }
 
@@ -234,9 +266,88 @@ final class LogFiles
             'lines' => count($selected),
             'truncated' => $truncated,
             'matched' => $matched,
+            'since' => $sinceAt?->toIso8601String(),
             'searched_bytes' => $size - $start,
+            'note' => self::staleNote($log, $path),
             'content' => $content,
         ];
+    }
+
+    /**
+     * A warning when another named log was written more recently than the
+     * one being read: the classic trap is a stale laravel.log beside the
+     * daily file the app actually logs to now.
+     */
+    public static function staleNote(string $log, string $path): ?string
+    {
+        $readAt = (int) @filemtime($path);
+        $newest = null;
+
+        foreach (self::named() as $name => $candidate) {
+            if ($name === $log || $candidate === $path || ! is_file($candidate)) {
+                continue;
+            }
+
+            $writtenAt = (int) @filemtime($candidate);
+
+            if ($writtenAt > $readAt + 60 && ($newest === null || $writtenAt > $newest[1])) {
+                $newest = [$name, $writtenAt];
+            }
+        }
+
+        if ($newest === null) {
+            return null;
+        }
+
+        return sprintf(
+            '%s was last written %s ago; %s was written %s ago. The app may be logging there now.',
+            $log,
+            Vitals::duration(max(0, time() - $readAt)),
+            $newest[0],
+            Vitals::duration(max(0, time() - $newest[1])),
+        );
+    }
+
+    /**
+     * A `since` argument as a point in time: a window like 30m, 2h or 1d
+     * back from now, or anything Carbon parses, in the app's timezone.
+     */
+    public static function parseSince(string $since): ?Carbon
+    {
+        $since = trim($since);
+
+        if (preg_match('/^(\d+)\s*([mhd])$/i', $since, $m) === 1) {
+            $n = (int) $m[1];
+
+            return match (strtolower($m[2])) {
+                'm' => now()->subMinutes($n),
+                'h' => now()->subHours($n),
+                default => now()->subDays($n),
+            };
+        }
+
+        try {
+            return Carbon::parse($since, config('app.timezone', 'UTC'));
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * The timestamp a log entry opens with (`[2026-10-27 02:17:28] ...`,
+     * with optional fraction and offset), or null for a continuation line.
+     */
+    public static function timestamp(string $line): ?Carbon
+    {
+        if (preg_match('/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?)(Z|[+-]\d{2}:?\d{2})?\]/', $line, $m) !== 1) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($m[1].($m[2] ?? ''), config('app.timezone', 'UTC'));
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private static function dailyPath(string $path, Carbon $date): string

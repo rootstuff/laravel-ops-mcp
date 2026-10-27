@@ -2,20 +2,18 @@
 
 namespace Rootstuff\OpsMcp;
 
-use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
 use Illuminate\Console\Events\ScheduledTaskStarting;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Mcp\Facades\Mcp;
 use Rootstuff\OpsMcp\Console\GenerateTokenCommand;
 use Rootstuff\OpsMcp\Http\Middleware\AuthenticateOpsToken;
 use Rootstuff\OpsMcp\Http\Middleware\LogOpsCall;
+use Rootstuff\OpsMcp\Http\Middleware\ThrottleOpsCall;
 use Rootstuff\OpsMcp\Listeners\RecordScheduledTask;
 use Rootstuff\OpsMcp\Mcp\OpsServer;
 
@@ -39,10 +37,8 @@ class OpsMcpServiceProvider extends ServiceProvider
         Mcp::local((string) config('ops-mcp.local_handle', 'ops'), OpsServer::class);
 
         if (config('ops-mcp.enabled')) {
-            RateLimiter::for('ops-mcp', fn (Request $request) => Limit::perMinute(max(1, (int) config('ops-mcp.rate_limit', 60)))->by((string) $request->ip()));
-
             Mcp::web((string) config('ops-mcp.path', '/mcp/ops'), OpsServer::class)
-                ->middleware(['throttle:ops-mcp', AuthenticateOpsToken::class, LogOpsCall::class]);
+                ->middleware([ThrottleOpsCall::class, AuthenticateOpsToken::class, LogOpsCall::class]);
         }
 
         if (config('ops-mcp.scheduler.record', true)) {
