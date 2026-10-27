@@ -23,8 +23,9 @@ Seven tools, every one read-only, nothing that takes a path or a command:
 | `scheduler` | Every scheduled task with its expression, next due time and last run, and whether `schedule:run` has ticked recently. |
 
 Laravel keeps no record of past scheduled runs, so the package listens to the
-scheduler's own events and keeps the last run of each task in your cache.
-That's the one thing it writes.
+scheduler's own events and keeps the last run of each task in your cache,
+plus a tick every time `schedule:run` starts (whether or not anything was
+due). That's the one thing it writes.
 
 ## Install
 

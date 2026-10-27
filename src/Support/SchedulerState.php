@@ -12,9 +12,10 @@ use Throwable;
  * The schedule as the app declares it, with when each task last ran. Laravel
  * records nothing about past runs, so the package's listener stamps every
  * start, finish, failure and skip into the cache (see RecordScheduledTask),
- * along with the scheduler's last tick. No tick in a few minutes means the
- * cron entry for `schedule:run` is missing or stopped, which is the finding
- * behind most "my job never ran" questions.
+ * along with the scheduler's last tick, stamped every time `schedule:run`
+ * starts whether or not anything was due. No tick in a few minutes means
+ * the cron entry is missing or stopped, which is the finding behind most
+ * "my job never ran" questions.
  */
 final class SchedulerState
 {

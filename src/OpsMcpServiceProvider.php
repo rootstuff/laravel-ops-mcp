@@ -3,6 +3,7 @@
 namespace Rootstuff\OpsMcp;
 
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
@@ -45,6 +46,7 @@ class OpsMcpServiceProvider extends ServiceProvider
         }
 
         if (config('ops-mcp.scheduler.record', true)) {
+            Event::listen(CommandStarting::class, [RecordScheduledTask::class, 'commandStarting']);
             Event::listen(ScheduledTaskStarting::class, [RecordScheduledTask::class, 'starting']);
             Event::listen(ScheduledTaskFinished::class, [RecordScheduledTask::class, 'finished']);
             Event::listen(ScheduledTaskFailed::class, [RecordScheduledTask::class, 'failed']);

@@ -2,6 +2,7 @@
 
 namespace Rootstuff\OpsMcp\Listeners;
 
+use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
@@ -15,9 +16,20 @@ use Throwable;
  * Keeps the last run of every scheduled task, and the scheduler's last
  * tick, in the cache. Cheap (one cache write per task per run) and the only
  * way to answer "when did this last run?" without reading cron logs.
+ *
+ * The tick is stamped when `schedule:run` itself starts, not when a task
+ * does: in a minute where nothing is due, and in an app with no tasks at
+ * all, the scheduler still ran and must still read as running.
  */
 final class RecordScheduledTask
 {
+    public function commandStarting(CommandStarting $event): void
+    {
+        if ($event->command === 'schedule:run') {
+            $this->write(SchedulerState::TICK_KEY, now()->getTimestamp());
+        }
+    }
+
     public function starting(ScheduledTaskStarting $event): void
     {
         $this->write(SchedulerState::TICK_KEY, now()->getTimestamp());
